@@ -1,0 +1,402 @@
+---
+title: "Case study"
+subtitle: "Classification of advertisement mails"
+author: Jalal Alizadeh
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+output:
+  bookdown::html_document2:
+    theme: default
+    self_contained: yes
+    toc: true
+    toc_float: true
+    number_sections: true
+mode: selfcontained
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, 
+  encoding = 'UTF-8', 
+  output_dir = "../results",
+  output_file = paste0(gsub('.Rmd', '_', inputFile), lubridate::today(), '.html')) })
+  
+references:
+- id: boyd2013
+  title: 'Area under the precision-recall curve: point estimates and confidence intervals.'
+  author:
+  - family: Boyd
+    given: Kendrick
+  - family: Eng
+    given: Kevin H.
+  - family: Page
+    given: C. David
+  container-title: Machine Learning and Knowledge Discovery in Databases
+  volume: 8190
+  URL: 'https://link.springer.com/chapter/10.1007%2F978-3-642-40994-3_29'
+  DOI: 10.1007/978-3-642-40994-3_29
+  issue: 
+  page: 451–466
+  type: article-journal
+  issued:
+    year: 2013
+---
+  
+```{r english locale, include=FALSE, echo=FALSE}
+Sys.setlocale("LC_ALL","English")
+Sys.setenv(LANG = "en_US.UTF-8")
+```
+
+```{r functions, include=FALSE, cache=FALSE, echo = F, message = F, warning=F}
+# libraries
+library(caret)
+library(tidyverse)
+options(dplyr.summarise.inform=FALSE)  # suppress summarise grouping message in newer dplyr versions
+library(lubridate)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(usmap)
+library(zipcodeR)
+library(fmsb)
+library(knitr)
+options(knitr.kable.NA = '') # prints an empty cell instead of NA
+library(yarrr)
+library(formula.tools)
+library(gtsummary)
+library(kableExtra)
+```
+
+```{r path, echo = F, message = F, warning = F}
+# Project path
+project_path <- 'C:/Users/Alizadeh/Documents/Altran/Recruiting_Task'
+
+# Metric functions
+source('C:/Users/Alizadeh/Documents/Altran/Recruiting_Task/Functions/model_metricsglobal.R')
+
+# Training and Test sets
+source('C:/Users/Alizadeh/Documents/Altran/Recruiting_Task/Scripts/1_2_2_preprocessingForCase2.R')
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, cache.lazy = FALSE, 
+                      warning = FALSE, message = F)
+knitr::knit_hooks$set(inline = function(x) {
+  if(!is.numeric(x)){
+    x
+  } else {
+    prettyNum(round(x,2), big.mark=" ")
+  }
+})
+
+```
+
+```{r sources_objects, message=F, warning=F}
+# all the objects are created outside of the RMD file for memory reasons
+source('C:/Users/Alizadeh/Documents/Altran/Recruiting_Task/Scripts/4_source_markdown.R')
+```
+
+# Statistical methods
+## Glossary
+Below are the definitions and equations of the commonly used terms in classification problems.
+
+* Confusion matrix: contingency table representing how accurately are the events classified  
+
+```{r confusionMatrix, eval = T}
+tibble('&nbsp;&nbsp;' = 'Predicted \n condition', ' ' = c('True', 'False'), 
+       True = c('True positive', 'False negative'), 
+       False = c('False positive', 'True negative')) %>% 
+  kable('html', escape = F) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, fixed_thead = TRUE) %>% 
+  collapse_rows(columns = 1) %>% 
+  add_header_above(c(' ' = 2,
+                     'Condition positive' = 2))
+```
+
+* Accuracy: proportion of correctly classified events.
+
+$Accuracy = \frac{\sum True\: positive + \sum True\: negative}{\sum Total\: population}$
+  
+  
+  * Recall, Sensitivity or True positive rate: fraction of positive events that are successfully classified as such.
+
+$Recall = \frac{\sum True\: positive}{\sum Condition\: positive} = \frac{\sum True\: positive}{\sum Tru\:e positive + \sum False\: negative}$
+  
+  
+  * Specificity, True negative rate: fraction of the negative events that are correctly classified as such.  
+
+$Specificity = \frac{\sum True\: negative}{\sum Condition\: negative} = \frac{\sum True\: negative}{\sum True\: negative + \sum False\: positive}$
+  
+  
+  * Precision, Positive predictive value: proportion of the positive events that are predicted as such.  
+
+$Precision = \frac{\sum True\: positive}{\sum Predicted\: positive} = \frac{\sum True\: positive}{\sum True\: positive + \sum False\:\: positive}$
+  
+  
+  * Negative predictive value: proportion of the positive events that are predicted as such.  
+
+$Negative\: predictive\: value = \frac{\sum True\: negative}{\sum Predicted\: negative} = \frac{\sum True\: negative}{\sum True\: negative + \sum False\: negative}$
+  
+  * F1 score: combined measure of precision and recall.
+
+$F1 = 2.\frac{Precision.Recall}{Precision+Recall}$
+  
+## Statistical methods
+### Model training and selection
+Response to advertisement mails was predicted using various machine learning algorithms, trained on data with nine features.
+The initial data is splitted and 25% is set aside as a test set and five concurrent models were evaluated.
+Each model contained the following variables: age, earnings, family status, type of car, living area, life style, type of sports, broader and a bit narrower areas extracted from zip codes.
+
+The zip code is converted to two columns namely broad area and county using first digit and first three digits of zip code, respectively. The new columns are considered as high cardinality variable which contain relatively a high number of unique values. One way to handle this kind of variable is to use weight of evidence (WoE) approach in which predictive power of an independent variable in relation to the dependent variable is calculated and replaced. 
+
+Other categorical variables with two, three and four levels are encoded as dummy encoding in which n-1 (n: number of levels) new columns are generated and assigned to numerical values. Another procedure also was investigated on categorical variables with more than 2 levels, where WoE approach was applied to reduce sparsity to some extend. According to the results, dummy encoding showed better performance, therefore, test and training sets are generated based on WoE approach (only on zip codes columns) and dummy encoding (other categorical variables). 
+
+All the variables are scaled and centered before the analyses. This was done on training set, stored the mean and standard deviation of training variables and then scaled and centered test set based on the stored values.  
+
+The models were evaluated using five different algorithms: logistic regression (GLM), support vector machine (SVM), random forest (RF), gradient boosting machine (GBM), decision tree (DT).
+The algorithms were tuned using a grid search with a k-folds approach, using 3 repetitions of 5-folds each. During each repetition, the training set is splitted into 5 equal chunks, and a model is run with 4/5 of the training set for every combination of hyper-parameters and evaluated on the remaining 1/5. This is done 5 times for each repetition so that each 5th is used once a a validation set After all the iterations, the hyper-parameters values maximizing the area under the precision-recall curve during the cross-validation process are selected, and the model is run one last time with these values, on the whole training set. 
+To evaluate the performance of the models trained, the values predicted during the cross-validation process are used to compute ROC AUC and the model with the highest AUC and (Precision-Recall) prAUC is considered the best.
+Finally, using the probabilities predicted using the test data and the optimal threshold, we assessed the predictive abilities of each algorithm  with the receiver operator curve (ROC), the precision recall curve, AUC, F1 statistic and confusion matrices. From the confusion matrices, the recall, precision, specificity (true negative rate) and negative predictive values are computed.
+
+
+# Results{.tabset}
+## Descriptive statistics{.tabset}
+```{r training/test values}
+# Original data
+InputData <-  read.csv(file.path(project_path,'Data/Recruiting_Task_InputData.csv'))
+
+InputData <- dplyr::mutate_if(InputData, is.character, as.factor) %>% 
+  dplyr::mutate(label = ifelse(label == "response",1,0))
+
+
+# Divide data into train/test with a split ratio of 75::25
+set.seed(888) # should be the same for all, so that the training/test sets are all the same
+splitData <- createDataPartition(InputData$label, p = 0.75, list = FALSE)
+
+trainingData<- InputData[splitData,]
+testData<- InputData[-splitData,]
+
+# Extract first digit of zip code as broad area and first 3 digits for county information
+# Weight of evidence encoding is used to convert categorical variables with high cardinallity to numeric values
+trainingData <- trainingData %>% 
+  dplyr::mutate(broadArea = as.numeric(substr(zip.code,1,1))) %>% # First digit of zip code
+  dplyr::mutate(county = as.numeric(substr(zip.code,1,3)))  # First 3 digits of zip code
+
+# Handling sports variable in Train set
+# Like in training set, a new variable as "other" is defined
+levels(trainingData$sports)[match("",levels(trainingData$sports))] <- "other"
+trainingData$sports[trainingData$sports == ""] <- factor("other")
+
+testData <- testData %>% 
+  dplyr::mutate(broadArea = as.numeric(substr(zip.code,1,1))) %>% # First digit of zip code
+  dplyr::mutate(county = as.numeric(substr(zip.code,1,3)))  # First 3 digits of zip code
+
+# Handling sports variable in Test set
+# Like in training set, a new variable as "other" is defined
+levels(testData$sports)[match("",levels(testData$sports))] <- "other"
+testData$sports[testData$sports == ""] <- factor("other")
+
+```
+
+### Training descriptive analysis
+```{r training descriptive analysis}
+# A statistics overview of training set is implemented to get an overview of training set
+trainingData %>% 
+  select(-c(name,zip.code)) %>% 
+  tbl_summary(by = label,missing_text = "Missing values") %>% 
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>%
+  bold_p() %>% 
+  modify_header(label = "**Variable**") %>%
+  modify_spanning_header(update = starts_with("stat_") ~ "**Response**") %>%
+  add_overall() %>%
+  modify_footnote(
+    all_stat_cols() ~ "Median (IQR) or Frequency (%)") %>%
+  bold_labels() %>% 
+  italicize_levels() %>% 
+  as_flex_table()
+  
+```
+
+### Test descriptive analysis
+```{r test descriptive analysis}
+# A statistics overview of test set is implemented to get an overview of test set
+testData %>% 
+  select(-c(name,zip.code)) %>% 
+  tbl_summary(by = label,missing_text = "Missing values") %>% 
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>%
+  bold_p() %>% 
+  modify_header(label = "**Variable**") %>%
+  modify_spanning_header(update = starts_with("stat_") ~ "**Response**") %>%
+  add_overall() %>%
+  modify_footnote(
+    all_stat_cols() ~ "Median (IQR) or Frequency (%)") %>%
+  bold_labels() %>% 
+  italicize_levels() %>% 
+  as_flex_table() 
+```
+
+
+
+## Model training{.tabset}
+The metrics presented below are computed during the cross-validation process
+
+### Cross-validation metrics{.tabset}
+```{r, CVmetrics, warning = F, results='asis', message = F}
+# cv AUC (values and plots)
+for(name_algo in names(crossValidationList)){
+  cat('  \n####', name_algo, '  \n')
+  metrics <- crossValidationList[[name_algo]]                 
+  
+  # Extract the AUC and F1 values to print them as part of the legend
+  aucs <- metrics$discrimination_metric %>% 
+    pivot_longer(cols = -Metric) %>% 
+    pivot_wider(names_from = Metric, values_from = value)
+  
+  labels_auc <- paste0(aucs$name, '\n(', round(aucs$AUC, 3),')')
+  
+  labels_prauc <- paste0(aucs$name, '\n(', round(aucs$prAUC, 3),')')
+  
+  p_roc <- metrics$plots$ROC +
+    scale_color_discrete(labels = labels_auc)+
+    ggtitle('ROC')
+  
+  p_rauc <- metrics$plots$Precision_recall +
+    scale_color_discrete(labels = labels_prauc)+
+    ggtitle('Precision-Recall curve')
+  
+  print(p_roc)
+  print(p_rauc)
+  cat("  \n")
+}
+```
+
+
+### Variable importance{.tabset}
+
+```{r varimp, results='asis'}
+
+for(name_algo in names(crossValidationList)){
+  cat('  \n####', name_algo, '  \n')
+  
+  metrics <- crossValidationList[[name_algo]]
+
+  # sort the varaibles based on the iportance
+  ImpFeat <- metrics$metrics %>%
+    mutate_if(is.numeric, ~ round(., 1)) %>%
+    rename(Importance = advertisementPrediction) %>% 
+    select(Variable,Importance) %>% 
+    arrange(desc(Importance))
+
+  # Prepare the ImpFeat in order to fit the plot 
+  ImpFeat2 <-  as.data.frame(matrix( ImpFeat$Importance, ncol = dim(ImpFeat)[1]))
+  colnames(ImpFeat2) <- ImpFeat$Variable
+  ImpFeat2 <- rbind(rep(100,dim(ImpFeat)[1]) , rep(0,dim(ImpFeat)[1]) , ImpFeat2)
+  
+  # radar plot
+ radarchart(ImpFeat2, axistype=1 , 
+ 
+    #custom polygon
+    pcol=rgb(0.2,0.5,0.5,0.9, 0.9) , pfcol=rgb(0.2,0.5,0.5,0.5, 0.5), plwd=4,seg = 5, 
+ 
+    #custom the grid
+    cglcol="red", cglty=1, axislabcol="blue", caxislabels=seq(0,100,20), cglwd=0.8,
+ 
+    #custom labels
+    vlcex=0.8, title = "Variable importance")
+  
+  cat("  \n")
+}
+```
+
+## Model test{.tabset}
+The metrics and results presented below are computed using the test set (25% of the original set) and the model specification performing the best during cross-validation.
+
+
+### Receiver operator curve
+```{r roc}
+list_metrics$plots$ROC
+```
+
+### Precision-Recall curve
+```{r prc}
+list_metrics$plots$Precision_recall
+```
+
+### Discrimination metrics
+AUC 95% confidence intervals are computed using 2000 bootstrapped replicate. prAUC 95% confidence interval are computed using a logit approximation [@boyd2013]
+
+```{r discrimination_plot}
+list_metrics$discrimination_plot
+```
+
+## Final model architecture{.tabset}
+
+As of results, random forest, gradient boosting method and decision tree performed best to distinguish response from non-response. To have a clear overview of final model, a decision with is trained on all input data (the same data engineering is done) and rules of classification are extracted.
+
+### Prediction rules
+```{r finalModelRF}
+
+source(file.path(project_path, 'Scripts/1_2_3_preprocessingForFinalModel.R'))
+
+
+# Create a data as combination of train and test
+trainTestData <- Data %>% 
+  select(-c(zip1,zip3))
+# Train a decision tree classifier on whole data
+FinalDT <- rpart(label~., data = trainTestData)
+
+# Plot the rules to have a clear insight
+rpart.plot(FinalDT,
+           type = 4,
+           under = TRUE)
+
+
+```
+
+
+### Map county information
+
+```{r mapCounty}
+
+# Get US zip codes together with county and state information
+zip_us <- zip_code_db %>% select(zipcode,state,county)
+
+# get US Fips corresponsing to counties
+countyFips <- countypop %>% 
+  select(fips,county) %>% 
+  as.data.frame() %>% 
+  distinct()
+
+# Get the first three digits of zip code
+zip_us <- zip_us %>%
+  dplyr::mutate(zipCut = as.factor(substr(zipcode,1,3))) %>%
+  distinct() %>% 
+  left_join(.,countyFips, by = "county")
+
+
+# Find the first three digit that are prone to response based on the final trained model
+proneZip <- Data %>%
+  select(zip3,county) %>%
+  filter(county>=1.2) %>%
+  distinct(zip3)
+
+# Get the corresponding states and county using US data
+zipData <- proneZip %>%
+  left_join(.,zip_us, by = c('zip3' = 'zipCut')) %>%
+  remove_missing() 
+
+zipOutput <- zip_us %>%
+  dplyr::mutate(value = ifelse(zip_us$zipcode %in% zipData$zipcode,1,0)) %>%
+  select(-zipCut) %>%
+  remove_missing() %>%
+  select(county,value,state,fips)
+
+# Highlight counties with higher probabilities of response
+plot_usmap( regions = "counties", data = zipOutput, values = "value", color = "red") +
+  scale_fill_continuous( "viridis",name = "Response", label = scales::comma) +
+  labs(title = "US counties", subtitle = "Counties with high probabilities of response") +
+  theme(legend.position = "right")
+
+
+```
+
+
+# References
